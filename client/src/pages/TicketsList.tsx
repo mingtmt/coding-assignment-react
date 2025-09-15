@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useTicketsStore } from "../store/tickets.store";
 import { useUsersStore } from "../store/users.store";
-import { useThemeStore } from "../store/theme.store";
 import { getUiStatus, STATUS_LABEL, type UiStatus } from "../store/status";
 import { TicketCard } from "../components/TicketCard";
 import { CreateModal } from "../components/CreateModal";
@@ -27,7 +26,6 @@ export const TicketsList = () => {
     markIncomplete,
   } = useTicketsStore();
   const users = useUsersStore();
-  const { theme, toggle } = useThemeStore();
 
   // load data
   useEffect(() => {
@@ -89,20 +87,27 @@ export const TicketsList = () => {
   const onDropTo = useCallback(
     async (col: ColumnKey) => {
       if (!dragId) return;
+
       const t = tickets.find((x) => String(x.id) === dragId);
       if (!t) return;
 
-      const current = getUiStatus(t);
-      if (current === col) {
+      const from = getUiStatus(t); // 'unassigned' | 'assigned' | 'resolved'
+      if (from === col) {
         setDragId(null);
         return;
       }
 
       try {
+        // Nếu đang ở Resolved và thả sang cột khác → reopen trước
+        if (from === "resolved" && col !== "resolved") {
+          await markIncomplete(t.id);
+        }
+
         if (col === "unassigned") {
-          if (t.completed) await markIncomplete(t.id);
+          // mục tiêu là Unassigned → (đảm bảo reopened ở trên) rồi unassign
           await unassign(t.id);
         } else if (col === "assigned") {
+          // mục tiêu là Assigned → cần user đang chọn
           const chosen = activeAssignee ? Number(activeAssignee) : null;
           if (chosen == null) {
             const el = document.getElementById("activeAssigneeSel");
@@ -110,7 +115,6 @@ export const TicketsList = () => {
             setTimeout(() => el?.classList.remove("shake"), 500);
             return;
           }
-          if (t.completed) await markIncomplete(t.id);
           await assign(t.id, chosen);
         } else if (col === "resolved") {
           await markComplete(t.id);
@@ -119,15 +123,7 @@ export const TicketsList = () => {
         setDragId(null);
       }
     },
-    [
-      dragId,
-      tickets,
-      activeAssignee,
-      assign,
-      unassign,
-      markComplete,
-      markIncomplete,
-    ]
+    [dragId, tickets, activeAssignee, assign, unassign, markComplete, markIncomplete]
   );
 
   if (loading) return <p className="muted">Loading…</p>;
@@ -138,22 +134,18 @@ export const TicketsList = () => {
       {/* Top bar */}
       <div className="toolbar card">
         <div className="title">
-          <h1>Tickets</h1>
           <div className="chips">
             <span className="chip">Total {counters.total}</span>
-            <span className="chip tone-unassigned">
+            <span className="badge unassigned">
               Unassigned {counters.unassigned}
             </span>
-            <span className="chip tone-assigned">
+            <span className="badge assigned">
               Assigned {counters.assigned}
             </span>
-            <span className="chip tone-resolved">
+            <span className="badge resolved">
               Resolved {counters.resolved}
             </span>
           </div>
-          <button className="ghost" onClick={toggle}>
-            {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
-          </button>
         </div>
 
         <div className="controls">
@@ -252,7 +244,9 @@ export const TicketsList = () => {
       </div>
 
       {/* CREATE MODAL */}
-      {openModal && <CreateModal openModal={openModal} setOpenModal={setOpenModal} />}
+      {openModal && (
+        <CreateModal openModal={openModal} setOpenModal={setOpenModal} />
+      )}
     </div>
   );
 };

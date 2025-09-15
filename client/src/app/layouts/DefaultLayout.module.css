@@ -1,0 +1,53 @@
+/* Layout shell: header + main + footer */
+.appShell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Header + Footer */
+.header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.headerInner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.footer {
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.footerInner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.appMain {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.appContainer {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 16px;
+  height: 100%;
+}
