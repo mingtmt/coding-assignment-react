@@ -16,7 +16,7 @@ export type Filter = "all" | UiStatus;
 type TicketState = {
   tickets: Ticket[];
   loading: boolean;
-  error: string | null;
+  error?: string | null;
   filter: Filter;
 };
 

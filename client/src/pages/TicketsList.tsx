@@ -1,13 +1,18 @@
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
-import { useTicketsStore, selectFilteredTickets } from "../store/tickets.store";
-import { getUiStatus, type UiStatus, STATUS_LABEL } from "../store/status";
+import { useTicketsStore } from "../store/tickets.store";
+import { useUsersStore } from "../store/users.store";
+import { useThemeStore } from "../store/theme.store";
+import { getUiStatus, STATUS_LABEL, type UiStatus } from "../store/status";
+import { TicketCard } from "../components/TicketCard";
+import { CreateModal } from "../components/CreateModal";
 
-const TABS: { key: "all" | UiStatus; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "unassigned", label: "Unassigned" },
-  { key: "assigned", label: "Assigned" },
-  { key: "resolved", label: "Resolved" },
+type ColumnKey = "unassigned" | "assigned" | "resolved";
+
+const COLUMNS: { key: ColumnKey; title: string }[] = [
+  { key: "unassigned", title: "Unassigned" },
+  { key: "assigned", title: "Assigned" },
+  { key: "resolved", title: "Resolved" },
 ];
 
 export const TicketsList = () => {
@@ -15,151 +20,239 @@ export const TicketsList = () => {
     tickets,
     loading,
     error,
-    filter,
-    setFilter,
     load,
-    add,
     assign,
     unassign,
     markComplete,
     markIncomplete,
   } = useTicketsStore();
+  const users = useUsersStore();
+  const { theme, toggle } = useThemeStore();
 
+  // load data
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    void users.load();
+  }, []);
 
-  const filtered = useMemo(
-    () => selectFilteredTickets(useTicketsStore.getState()),
-    [tickets, filter]
+  // UI state
+  const [activeAssignee, setActiveAssignee] = useState<string>("");
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [q, setQ] = useState(""); // search
+  const [sort, setSort] = useState<"recent" | "az" | "za">("recent");
+  const [openModal, setOpenModal] = useState(false);
+
+  // derived: search + sort
+  const filtered = useMemo(() => {
+    const list = q
+      ? tickets.filter((t) =>
+          t.description.toLowerCase().includes(q.toLowerCase())
+        )
+      : tickets.slice();
+
+    if (sort === "az")
+      list.sort((a, b) => a.description.localeCompare(b.description));
+    if (sort === "za")
+      list.sort((a, b) => b.description.localeCompare(a.description));
+
+    return list;
+  }, [tickets, q, sort]);
+
+  // grouped by status
+  const grouped = useMemo(() => {
+    const map: Record<ColumnKey, typeof filtered> = {
+      unassigned: [],
+      assigned: [],
+      resolved: [],
+    };
+    for (const t of filtered) map[getUiStatus(t)].push(t);
+    return map;
+  }, [filtered]);
+
+  // counters numbers tickets of each status
+  const counters = useMemo(
+    () => ({
+      total: tickets.length,
+      unassigned: tickets.filter((t) => getUiStatus(t) === "unassigned").length,
+      assigned: tickets.filter((t) => getUiStatus(t) === "assigned").length,
+      resolved: tickets.filter((t) => getUiStatus(t) === "resolved").length,
+    }),
+    [tickets]
   );
 
-  const [newDesc, setNewDesc] = useState("");
-  const [newAssignee, setNewAssignee] = useState<number | "">("");
+  // dnd handlers
+  const onDragStart = (id: string | number) => setDragId(String(id));
+  const allowDrop = (e: React.DragEvent) => e.preventDefault();
 
-  if (loading) return <p>Loading…</p>;
-  if (error) return <p style={{ color: "red" }}>{error}</p>;
+  const onDropTo = useCallback(
+    async (col: ColumnKey) => {
+      if (!dragId) return;
+      const t = tickets.find((x) => String(x.id) === dragId);
+      if (!t) return;
+
+      const current = getUiStatus(t);
+      if (current === col) {
+        setDragId(null);
+        return;
+      }
+
+      try {
+        if (col === "unassigned") {
+          if (t.completed) await markIncomplete(t.id);
+          await unassign(t.id);
+        } else if (col === "assigned") {
+          const chosen = activeAssignee ? Number(activeAssignee) : null;
+          if (chosen == null) {
+            const el = document.getElementById("activeAssigneeSel");
+            el?.classList.add("shake");
+            setTimeout(() => el?.classList.remove("shake"), 500);
+            return;
+          }
+          if (t.completed) await markIncomplete(t.id);
+          await assign(t.id, chosen);
+        } else if (col === "resolved") {
+          await markComplete(t.id);
+        }
+      } finally {
+        setDragId(null);
+      }
+    },
+    [
+      dragId,
+      tickets,
+      activeAssignee,
+      assign,
+      unassign,
+      markComplete,
+      markIncomplete,
+    ]
+  );
+
+  if (loading) return <p className="muted">Loading…</p>;
+  if (error) return <p className="error">{error}</p>;
 
   return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          marginBottom: 12,
-        }}
-      >
-        <h1 style={{ fontSize: 24, fontWeight: 600 }}>Tickets</h1>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            await add(newDesc.trim());
-            setNewDesc("");
-            setNewAssignee("");
-          }}
-          style={{ display: "flex", gap: 8 }}
-        >
-          <input
-            value={newDesc}
-            onChange={(e) => setNewDesc(e.target.value)}
-            placeholder="New ticket description"
-          />
-          <input
-            value={newAssignee}
-            onChange={(e) =>
-              setNewAssignee(
-                e.target.value === "" ? "" : Number(e.target.value)
-              )
-            }
-            placeholder="assigneeId (optional)"
-          />
-          <button type="submit" disabled={!newDesc.trim()}>
-            Add
+    <div className="board-wrap">
+      {/* Top bar */}
+      <div className="toolbar card">
+        <div className="title">
+          <h1>Tickets</h1>
+          <div className="chips">
+            <span className="chip">Total {counters.total}</span>
+            <span className="chip tone-unassigned">
+              Unassigned {counters.unassigned}
+            </span>
+            <span className="chip tone-assigned">
+              Assigned {counters.assigned}
+            </span>
+            <span className="chip tone-resolved">
+              Resolved {counters.resolved}
+            </span>
+          </div>
+          <button className="ghost" onClick={toggle}>
+            {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
           </button>
-        </form>
+        </div>
+
+        <div className="controls">
+          <div className="field">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search description…"
+              aria-label="Search tickets"
+            />
+          </div>
+
+          <div className="field">
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as any)}
+              aria-label="Sort"
+            >
+              <option value="recent">Recent</option>
+              <option value="az">A → Z</option>
+              <option value="za">Z → A</option>
+            </select>
+          </div>
+
+          <div className="field">
+            <label className="label">Active assignee</label>
+            <select
+              id="activeAssigneeSel"
+              value={activeAssignee}
+              onChange={(e) => setActiveAssignee(e.target.value)}
+              aria-label="Active assignee"
+            >
+              <option value="">(choose user)</option>
+              {users.users.map((u) => (
+                <option key={String(u.id)} value={String(u.id)}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="spacer" />
+          <button className="primary" onClick={() => setOpenModal(true)}>
+            + New Ticket
+          </button>
+        </div>
       </div>
 
-      {/* Filter tabs */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setFilter(t.key)}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 999,
-              border: "1px solid #ddd",
-              background: filter === t.key ? "#111" : "#fff",
-              color: filter === t.key ? "#fff" : "#111",
-            }}
+      {/* Kanban grid */}
+      <div className="board-grid">
+        {COLUMNS.map((col) => (
+          <section
+            key={col.key}
+            className="column"
+            onDragOver={allowDrop}
+            onDrop={() => onDropTo(col.key)}
+            aria-label={`${col.title} column`}
           >
-            {t.label}
-          </button>
+            <header className="column-header">
+              <h2>{col.title}</h2>
+              <span className="count">{grouped[col.key].length}</span>
+            </header>
+
+            <ul className="column-list">
+              {grouped[col.key].map((t) => {
+                const status = getUiStatus(t);
+                const name = users.getName(t.assigneeId ?? null);
+                return (
+                  <li
+                    key={String(t.id)}
+                    className={`card ticket ${
+                      dragId === String(t.id) ? "dragging" : ""
+                    }`}
+                    draggable
+                    onDragStart={() => onDragStart(t.id)}
+                  >
+                    <TicketCard
+                      ticket={t}
+                      assignee={name}
+                      activeAssignee={activeAssignee}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+
+            {/* Empty tickets */}
+            {grouped[col.key].length === 0 && (
+              <div className="empty">
+                <p>No tickets</p>
+                <small>Drag here to move tickets</small>
+              </div>
+            )}
+          </section>
         ))}
       </div>
 
-      {filtered.length === 0 ? (
-        <p>No tickets.</p>
-      ) : (
-        <ul style={{ display: "grid", gap: 8 }}>
-          {filtered.map((t) => {
-            const ui = getUiStatus(t);
-            return (
-              <li
-                key={String(t.id)}
-                style={{
-                  background: "#fff",
-                  border: "1px solid #eee",
-                  borderRadius: 12,
-                  padding: 12,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <Link to={`/ticket/${t.id}`}>{t.description}</Link>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 8px",
-                      borderRadius: 999,
-                      border: "1px solid #ddd",
-                      textTransform: "capitalize",
-                    }}
-                  >
-                    {STATUS_LABEL[ui]}
-                  </span>
-                </div>
-                <small>
-                  assigneeId: {t.assigneeId ?? "—"} • completed:{" "}
-                  {String(t.completed)}
-                </small>
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  {ui !== "assigned" && (
-                    <button onClick={() => assign(t.id, 1)}>
-                      Assign to #1
-                    </button>
-                  )}
-                  {ui === "assigned" && (
-                    <button onClick={() => unassign(t.id)}>Unassign</button>
-                  )}
-                  {ui !== "resolved" ? (
-                    <button onClick={() => markComplete(t.id)}>
-                      Mark Resolved
-                    </button>
-                  ) : (
-                    <button onClick={() => markIncomplete(t.id)}>Reopen</button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {/* CREATE MODAL */}
+      {openModal && <CreateModal openModal={openModal} setOpenModal={setOpenModal} />}
     </div>
   );
 };

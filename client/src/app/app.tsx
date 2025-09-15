@@ -1,18 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
-import { TicketsList } from '../pages/TicketsList';
-import { TicketDetail } from '../pages/TicketDetail';
+import { useEffect, useState } from "react";
+import { Routes, Route } from "react-router-dom";
+import { TicketsList } from "../pages/TicketsList";
+import { TicketDetail } from "../pages/TicketDetail";
 
 const App = () => {
   return (
-    <div>
-      <h1>Ticketing App</h1>
-      <Routes>
-        <Route index element={<TicketsList />} />
-        <Route path="ticket/:id" element={<TicketDetail />} />
-        <Route path="*" element={<p>Not found</p>} />
-      </Routes>
-    </div>
+    <Routes>
+      <Route index element={<TicketsList />} />
+      <Route path="ticket/:id" element={<TicketDetail />} />
+      <Route path="*" element={<p>Not found</p>} />
+    </Routes>
   );
 };
 
