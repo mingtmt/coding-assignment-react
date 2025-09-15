@@ -6,21 +6,21 @@ import {
   createTicket,
   assignTicket,
   unassignTicket,
-  completeTicket,
-  markTicketIncomplete,
+  markCompleteTicket,
+  markIncompleteTicket,
 } from "../api/tickets";
 import { getUiStatus, type UiStatus } from "./status";
 
 export type Filter = "all" | UiStatus;
 
-type State = {
+type TicketState = {
   tickets: Ticket[];
   loading: boolean;
   error: string | null;
   filter: Filter;
 };
 
-type Actions = {
+type TicketActions = {
   load: () => Promise<void>;
   refreshOne: (id: string | number) => Promise<void>;
   setFilter: (f: Filter) => void;
@@ -31,7 +31,7 @@ type Actions = {
   markIncomplete: (ticketId: string | number) => Promise<void>;
 };
 
-export const useTicketsStore = create<State & Actions>((set, get) => ({
+export const useTicketsStore = create<TicketState & TicketActions>((set, get) => ({
   tickets: [],
   loading: false,
   error: null,
@@ -66,15 +66,15 @@ export const useTicketsStore = create<State & Actions>((set, get) => ({
   },
 
   async assign(ticketId, userId) {
-    // set({
-    //   tickets: get().tickets.map((x) =>
-    //     String(x.id) === String(ticketId)
-    //       ? { ...x, assigneeId: userId, completed: false }
-    //       : x
-    //   ),
-    // });
-    // await assignTicket(ticketId, userId);
-    // await get().refreshOne(ticketId);
+    set({
+      tickets: get().tickets.map((x) =>
+        String(x.id) === String(ticketId)
+          ? { ...x, assigneeId: userId, completed: false }
+          : x
+      ),
+    });
+    await assignTicket(ticketId, userId);
+    await get().refreshOne(ticketId);
   },
 
   async unassign(ticketId) {
@@ -87,12 +87,20 @@ export const useTicketsStore = create<State & Actions>((set, get) => ({
     await get().refreshOne(ticketId);
   },
 
-  async markComplete(ticketId) {},
+  async markComplete(ticketId) {
+    set({tickets: get().tickets.map(x => String(x.id) === String(ticketId) ? {...x, completed: true} :x)});
+    await markCompleteTicket(ticketId);
+    await get().refreshOne(ticketId);
+  },
 
-  async markIncomplete(ticketId) {},
+  async markIncomplete(ticketId) {
+    set({tickets: get().tickets.map(x => String(x.id) === String(ticketId) ? {...x, completed: false} : x)});
+    await markIncompleteTicket(ticketId);
+    await get().refreshOne(ticketId);
+  }
 }));
 
-export function selectFilteredTickets(s: State): Ticket[] {
+export const selectFilteredTickets = (s: TicketState): Ticket[] => {
   if (s.filter === "all") return s.tickets;
   return s.tickets.filter((t) => getUiStatus(t) === s.filter);
 }

@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const TicketSchema = z.object({
   id: z.number().or(z.string()),
   description: z.string(),
-  assigneeId: z.number().nullable().optional(),
+  assigneeId: z.number().or(z.string()).nullable().optional(),
   completed: z.boolean(),
 });
 
