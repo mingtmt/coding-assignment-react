@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { Link } from "react-router-dom";
-import { useTicketsStore } from "../store/tickets.store";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { useTicketsStore, selectTicketsFiltered } from "../store/tickets.store";
 import { useUsersStore } from "../store/users.store";
-import { getUiStatus, STATUS_LABEL, type UiStatus } from "../store/status";
+import { getUiStatus } from "../store/status";
 import { TicketCard } from "../components/TicketCard";
 import { CreateModal } from "../components/CreateModal";
 
@@ -24,41 +23,43 @@ export const TicketsList = () => {
     unassign,
     markComplete,
     markIncomplete,
+    assigneeFilter,
+    setAssigneeFilter,
   } = useTicketsStore();
+
   const users = useUsersStore();
 
   // load data
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useEffect(() => {
-    void users.load();
-  }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void users.load(); }, []);
 
   // UI state
-  const [activeAssignee, setActiveAssignee] = useState<string>("");
+  const [activeAssignee, setActiveAssignee] = useState<string>("")
   const [dragId, setDragId] = useState<string | null>(null);
-  const [q, setQ] = useState(""); // search
-  const [sort, setSort] = useState<"recent" | "az" | "za">("recent");
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState<"none" | "az" | "za">("none");
   const [openModal, setOpenModal] = useState(false);
 
-  // derived: search + sort
+  // 1) Lọc theo assignee từ store (KHÔNG ghi đè tickets)
+  const listByAssignee = useMemo(
+    () => selectTicketsFiltered(useTicketsStore.getState(), assigneeFilter),
+    [tickets, assigneeFilter]
+  );
+
+  // 2) Search + Sort trên kết quả đã lọc theo assignee
   const filtered = useMemo(() => {
-    const list = q
-      ? tickets.filter((t) =>
+    const base = q
+      ? listByAssignee.filter((t) =>
           t.description.toLowerCase().includes(q.toLowerCase())
         )
-      : tickets.slice();
+      : listByAssignee.slice();
 
-    if (sort === "az")
-      list.sort((a, b) => a.description.localeCompare(b.description));
-    if (sort === "za")
-      list.sort((a, b) => b.description.localeCompare(a.description));
+    if (sort === "az") base.sort((a, b) => a.description.localeCompare(b.description));
+    if (sort === "za") base.sort((a, b) => b.description.localeCompare(a.description));
+    return base;
+  }, [listByAssignee, q, sort]);
 
-    return list;
-  }, [tickets, q, sort]);
-
-  // grouped by status
+  // 3) Group theo status cho kanban
   const grouped = useMemo(() => {
     const map: Record<ColumnKey, typeof filtered> = {
       unassigned: [],
@@ -69,7 +70,7 @@ export const TicketsList = () => {
     return map;
   }, [filtered]);
 
-  // counters numbers tickets of each status
+  // Counters (tính trên toàn bộ tickets, không theo filter)
   const counters = useMemo(
     () => ({
       total: tickets.length,
@@ -80,7 +81,7 @@ export const TicketsList = () => {
     [tickets]
   );
 
-  // dnd handlers
+  // DnD handlers
   const onDragStart = (id: string | number) => setDragId(String(id));
   const allowDrop = (e: React.DragEvent) => e.preventDefault();
 
@@ -91,23 +92,21 @@ export const TicketsList = () => {
       const t = tickets.find((x) => String(x.id) === dragId);
       if (!t) return;
 
-      const from = getUiStatus(t); // 'unassigned' | 'assigned' | 'resolved'
+      const from = getUiStatus(t);
       if (from === col) {
         setDragId(null);
         return;
       }
 
       try {
-        // Nếu đang ở Resolved và thả sang cột khác → reopen trước
+        // Nếu kéo từ resolved sang cột khác → reopen (markIncomplete) trước
         if (from === "resolved" && col !== "resolved") {
           await markIncomplete(t.id);
         }
 
         if (col === "unassigned") {
-          // mục tiêu là Unassigned → (đảm bảo reopened ở trên) rồi unassign
           await unassign(t.id);
         } else if (col === "assigned") {
-          // mục tiêu là Assigned → cần user đang chọn
           const chosen = activeAssignee ? Number(activeAssignee) : null;
           if (chosen == null) {
             const el = document.getElementById("activeAssigneeSel");
@@ -127,7 +126,7 @@ export const TicketsList = () => {
   );
 
   if (loading) return <p className="muted">Loading…</p>;
-  if (error) return <p className="error">{error}</p>;
+  if (error)   return <p className="error">{error}</p>;
 
   return (
     <div className="board-wrap">
@@ -136,19 +135,14 @@ export const TicketsList = () => {
         <div className="title">
           <div className="chips">
             <span className="chip">Total {counters.total}</span>
-            <span className="badge unassigned">
-              Unassigned {counters.unassigned}
-            </span>
-            <span className="badge assigned">
-              Assigned {counters.assigned}
-            </span>
-            <span className="badge resolved">
-              Resolved {counters.resolved}
-            </span>
+            <span className="badge unassigned">Unassigned {counters.unassigned}</span>
+            <span className="badge assigned">Assigned {counters.assigned}</span>
+            <span className="badge resolved">Resolved {counters.resolved}</span>
           </div>
         </div>
 
         <div className="controls">
+          {/* Search */}
           <div className="field">
             <input
               value={q}
@@ -159,26 +153,17 @@ export const TicketsList = () => {
           </div>
 
           <div className="field">
+            <label className="label">Filter by assignee:</label>
             <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as any)}
-              aria-label="Sort"
+              value={assigneeFilter === null ? "" : String(assigneeFilter)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setAssigneeFilter(v === "" ? null : Number(v));
+              }}
+              aria-label="Filter by assignee"
             >
-              <option value="recent">Recent</option>
-              <option value="az">A → Z</option>
-              <option value="za">Z → A</option>
-            </select>
-          </div>
-
-          <div className="field">
-            <label className="label">Active assignee</label>
-            <select
-              id="activeAssigneeSel"
-              value={activeAssignee}
-              onChange={(e) => setActiveAssignee(e.target.value)}
-              aria-label="Active assignee"
-            >
-              <option value="">(choose user)</option>
+              <option value="">(all)</option>
+              <option value="__noassignee" disabled>──</option>
               {users.users.map((u) => (
                 <option key={String(u.id)} value={String(u.id)}>
                   {u.name}
@@ -187,10 +172,22 @@ export const TicketsList = () => {
             </select>
           </div>
 
+          {/* Sort */}
+          <div className="field">
+            <label className="label">Sort by:</label>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as any)}
+              aria-label="Sort"
+            >
+              <option value="none">None</option>
+              <option value="az">A → Z</option>
+              <option value="za">Z → A</option>
+            </select>
+          </div>
+
           <div className="spacer" />
-          <button className="primary" onClick={() => setOpenModal(true)}>
-            + New Ticket
-          </button>
+          <button className="primary" onClick={() => setOpenModal(true)}>+ New Ticket</button>
         </div>
       </div>
 
@@ -210,29 +207,18 @@ export const TicketsList = () => {
             </header>
 
             <ul className="column-list">
-              {grouped[col.key].map((t) => {
-                const status = getUiStatus(t);
-                const name = users.getName(t.assigneeId ?? null);
-                return (
-                  <li
-                    key={String(t.id)}
-                    className={`card ticket ${
-                      dragId === String(t.id) ? "dragging" : ""
-                    }`}
-                    draggable
-                    onDragStart={() => onDragStart(t.id)}
-                  >
-                    <TicketCard
-                      ticket={t}
-                      assignee={name}
-                      activeAssignee={activeAssignee}
-                    />
-                  </li>
-                );
-              })}
+              {grouped[col.key].map((t) => (
+                <li
+                  key={String(t.id)}
+                  className={`card ticket ${dragId === String(t.id) ? "dragging" : ""}`}
+                  draggable
+                  onDragStart={() => onDragStart(t.id)}
+                >
+                  <TicketCard ticket={t} activeAssignee={activeAssignee} />
+                </li>
+              ))}
             </ul>
 
-            {/* Empty tickets */}
             {grouped[col.key].length === 0 && (
               <div className="empty">
                 <p>No tickets</p>
@@ -243,7 +229,6 @@ export const TicketsList = () => {
         ))}
       </div>
 
-      {/* CREATE MODAL */}
       {openModal && (
         <CreateModal openModal={openModal} setOpenModal={setOpenModal} />
       )}
