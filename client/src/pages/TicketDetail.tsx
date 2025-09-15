@@ -1,47 +1,77 @@
-import { Link, useParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { fetchTicketById } from '../api/tickets';
-import type { Ticket } from '../schemas/ticket';
+import { Link, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useTicketsStore } from "../store/tickets.store";
+import { getUiStatus, STATUS_LABEL } from "../store/status";
 
 export const TicketDetail = () => {
   const { id } = useParams<{ id: string }>();
-  const [data, setData] = useState<Ticket | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { tickets, load, assign, unassign, markComplete, markIncomplete } =
+    useTicketsStore();
 
   useEffect(() => {
-    if (!id) return;
-    let alive = true;
-    setLoading(true);
-    fetchTicketById(id)
-      .then((t) => alive && setData(t))
-      .catch((e: any) => alive && setError(e?.message ?? 'Failed to load'))
-      .finally(() => alive && setLoading(false));
-    return () => { alive = false; };
-  }, [id]);
+    void load();
+  }, [load]);
+
+  const ticket = useMemo(
+    () => tickets.find((t) => String(t.id) === String(id)),
+    [tickets, id]
+  );
+  const [assignee, setAssignee] = useState<number | "">("");
+
+  if (!ticket) {
+    return (
+      <div>
+        <Link to="..">← Back</Link>
+        <p style={{ marginTop: 12 }}>Ticket not found.</p>
+      </div>
+    );
+  }
+
+  const ui = getUiStatus(ticket);
 
   return (
     <div>
       <Link to="..">← Back</Link>
 
-      {loading && <p>Loading…</p>}
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      <div style={{ marginTop: 12 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 600 }}>
+          Ticket #{String(ticket.id)}
+        </h1>
+        <p>
+          <b>Description:</b> {ticket.description}
+        </p>
+        <p>
+          <b>AssigneeId:</b> {ticket.assigneeId ?? "—"}
+        </p>
+        <p>
+          <b>Status:</b> {STATUS_LABEL[ui]}
+        </p>
 
-      {data && (
-        <div style={{ marginTop: 12 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 600 }}>
-            Ticket #{String(data.id)}
-          </h1>
-          <p><b>Description:</b> {data.description}</p>
-          <p><b>AssigneeId:</b> {data.assigneeId ?? '—'}</p>
-          <p><b>Completed:</b> {data.completed ? 'true' : 'false'}</p>
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button disabled>Assign</button>
-            <button disabled>Mark as Done</button>
-          </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <input
+            value={assignee}
+            onChange={(e) =>
+              setAssignee(e.target.value === "" ? "" : Number(e.target.value))
+            }
+            placeholder="assigneeId"
+          />
+          <button
+            onClick={() =>
+              assignee === "" ? null : assign(ticket.id, Number(assignee))
+            }
+          >
+            Assign
+          </button>
+          {ui === "assigned" && (
+            <button onClick={() => unassign(ticket.id)}>Unassign</button>
+          )}
+          {ui !== "resolved" ? (
+            <button onClick={() => markComplete(ticket.id)}>Mark Resolved</button>
+          ) : (
+            <button onClick={() => markIncomplete(ticket.id)}>Reopen</button>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
-}
+};
