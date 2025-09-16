@@ -1,16 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { useTicketsStore } from "../store/tickets.store";
+import { useUsersStore } from "../store/users.store";
 
 type CreateModalProps = {
   openModal: boolean;
   setOpenModal: (open: boolean) => void;
 };
 
-export const CreateModal: React.FC<CreateModalProps> = ({ openModal, setOpenModal }) => {
-  const { add } = useTicketsStore();
+export const CreateModal: React.FC<CreateModalProps> = ({
+  openModal,
+  setOpenModal,
+}) => {
+  const { add, assign } = useTicketsStore();
+  const users = useUsersStore();
   const [newDesc, setNewDesc] = useState("");
   const [newAssignee, setNewAssignee] = useState<string>("");
   const firstInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    void users.load();
+  }, []);
 
   useEffect(() => {
     if (openModal) {
@@ -21,7 +30,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({ openModal, setOpenModa
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDesc.trim()) return;
-    await add(newDesc.trim());
+    await add(newDesc.trim(), newAssignee ? Number(newAssignee) : null);
     setOpenModal(false);
     setNewDesc("");
     setNewAssignee("");
@@ -52,7 +61,7 @@ export const CreateModal: React.FC<CreateModalProps> = ({ openModal, setOpenModa
           </button>
         </div>
         <form className="modal-body" onSubmit={handleCreate}>
-          <label className="label">Description</label>
+          <label className="label">Description *</label>
           <input
             ref={firstInputRef}
             value={newDesc}
@@ -60,6 +69,21 @@ export const CreateModal: React.FC<CreateModalProps> = ({ openModal, setOpenModa
             placeholder="Describe the task…"
             required
           />
+
+          <label className="label">Assignee</label>
+          <select
+            value={newAssignee}
+            id="select-assignee"
+            onChange={(e) => setNewAssignee(e.target.value)}
+            aria-label="Select user to assign"
+          >
+            <option value="">(choose user)</option>
+            {users.users.map((u) => (
+              <option key={String(u.id)} value={String(u.id)}>
+                {u.name}
+              </option>
+            ))}
+          </select>
 
           <div className="modal-actions">
             <button

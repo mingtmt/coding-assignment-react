@@ -40,13 +40,11 @@ export const TicketsList = () => {
   const [sort, setSort] = useState<"none" | "az" | "za">("none");
   const [openModal, setOpenModal] = useState(false);
 
-  // 1) Lọc theo assignee từ store (KHÔNG ghi đè tickets)
   const listByAssignee = useMemo(
     () => selectTicketsFiltered(useTicketsStore.getState(), assigneeFilter),
     [tickets, assigneeFilter]
   );
 
-  // 2) Search + Sort trên kết quả đã lọc theo assignee
   const filtered = useMemo(() => {
     const base = q
       ? listByAssignee.filter((t) =>
@@ -59,7 +57,6 @@ export const TicketsList = () => {
     return base;
   }, [listByAssignee, q, sort]);
 
-  // 3) Group theo status cho kanban
   const grouped = useMemo(() => {
     const map: Record<ColumnKey, typeof filtered> = {
       unassigned: [],
@@ -70,7 +67,7 @@ export const TicketsList = () => {
     return map;
   }, [filtered]);
 
-  // Counters (tính trên toàn bộ tickets, không theo filter)
+  // counters for top bar
   const counters = useMemo(
     () => ({
       total: tickets.length,
@@ -99,7 +96,6 @@ export const TicketsList = () => {
       }
 
       try {
-        // Nếu kéo từ resolved sang cột khác → reopen (markIncomplete) trước
         if (from === "resolved" && col !== "resolved") {
           await markIncomplete(t.id);
         }

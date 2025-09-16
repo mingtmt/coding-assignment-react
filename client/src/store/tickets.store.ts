@@ -21,7 +21,7 @@ type TicketState = {
 type TicketActions = {
   load: () => Promise<void>;
   refreshOne: (id: string | number) => Promise<void>;
-  add: (description: string) => Promise<void>;
+  add: (description: string, assigneeId: number | null) => Promise<void>;
   assign: (ticketId: string | number, userId: string | number) => Promise<void>;
   unassign: (ticketId: string | number) => Promise<void>;
   markComplete: (ticketId: string | number) => Promise<void>;
@@ -56,9 +56,13 @@ export const useTicketsStore = create<TicketState & TicketActions>(
       }
     },
 
-    async add(description) {
+    async add(description, assigneeId) {
       const t = await createTicket({ description });
       set({ tickets: [t, ...get().tickets] });
+      if (assigneeId) {
+        await assignTicket(t.id, assigneeId);
+        await get().refreshOne(t.id);
+      }
     },
 
     async assign(ticketId, userId) {
